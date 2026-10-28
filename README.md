@@ -1,0 +1,2 @@
+# Cotality_Wildfire_Prediction_Project
+
