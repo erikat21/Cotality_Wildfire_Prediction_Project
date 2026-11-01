@@ -9,7 +9,9 @@ Both layers are reprojected to EPSG:3035 (equal area) BEFORE any area is measure
 Inputs:
     outputs/cells.gpkg                      from 01_build_cells.py
     EFFIS burnt-area polygons               shapefile path given with --fires
-        (until WP1's fires_master exists, the raw EFFIS modis.ba.poly.shp is fine)
+        (shapes always come from here)
+    WP1 fires_master.parquet                optional, --master: then WP1 decides which fires are kept and
+                                            their country, area_ha and firedate (matched on fire_id = EFFIS id)
 Outputs (outputs/):
     fire_cell.parquet   fire_id, cell_id, firedate, year, month, fire_area_ha,
                         burnt_ha_in_cell, cell_area_ha, burn_frac_cell, centroid_in_cell
@@ -18,6 +20,7 @@ Outputs (outputs/):
     fire_cell_check.csv per-fire area check: EFFIS AREA_HA vs polygon area vs sum over cells
 
 Run:  python 02_fire_cell.py --fires ~/Desktop/Capstone/fires/modis.ba.poly.shp
+      add --master ../WP1/data/processed/fires_master.parquet to use WP1's cleaned fire table
       (add --table ~/Desktop/Capstone/fires/effis_data_table_29thSept2026.csv if it says attributes are missing)
 """
 import argparse
@@ -34,11 +37,31 @@ COUNTRIES = {"ES", "PT"}
 GRID_BOUNDS = (-9.85, 35.85, 4.45, 44.05)  # lon/lat bounds of the whole grid, for a fast pre-filter
 
 
-def load_fires(path: Path, table: Path | None = None) -> gpd.GeoDataFrame:
+def apply_master(fires: gpd.GeoDataFrame, master_path: Path) -> gpd.GeoDataFrame:
+    """Keep only WP1's fires and take country, size and start date from fires_master."""
+    master = pd.read_parquet(master_path)
+    master.columns = [c.lower() for c in master.columns]   # WP1 stores FIREDATE in capitals
+    master = master[["fire_id", "country", "area_ha", "firedate"]].copy()
+    master["fire_id"] = master.fire_id.astype(str)
+    fires["ID"] = fires.ID.astype(str)
+    big = master[master.area_ha >= MIN_FIRE_HA]
+    no_shape = ~big.fire_id.isin(fires.ID)
+    print(f"fires_master: {len(master):,} fires, {len(big):,} of at least {MIN_FIRE_HA} ha; "
+          f"{no_shape.sum()} of those have no polygon in the shapefile box")
+    fires = fires.drop(columns=["COUNTRY", "AREA_HA", "FIREDATE"], errors="ignore").merge(
+        master.rename(columns={"fire_id": "ID", "country": "COUNTRY", "area_ha": "AREA_HA", "firedate": "FIREDATE"}),
+        on="ID", how="inner")
+    return fires
+
+
+def load_fires(path: Path, table: Path | None = None, master: Path | None = None) -> gpd.GeoDataFrame:
     fires = gpd.read_file(path, bbox=GRID_BOUNDS)
     fires.columns = [c if c == "geometry" else c.upper() for c in fires.columns]
     print(f"read {len(fires):,} polygons inside the grid box; CRS = {fires.crs}")
     print(f"shapefile columns: {[c for c in fires.columns if c != 'geometry']}")
+
+    if master is not None:
+        fires = apply_master(fires, master)
 
     # If the shapefile lacks the attributes, take them from the EFFIS CSV table (joined on id)
     needed = {"COUNTRY", "AREA_HA", "FIREDATE"}
@@ -56,7 +79,7 @@ def load_fires(path: Path, table: Path | None = None) -> gpd.GeoDataFrame:
     fires = fires[fires.COUNTRY.isin(COUNTRIES)].copy()
     fires["AREA_HA"] = pd.to_numeric(fires.AREA_HA, errors="coerce")
     fires = fires[fires.AREA_HA >= MIN_FIRE_HA].copy()
-    fires["firedate"] = pd.to_datetime(fires.FIREDATE, errors="coerce", format="ISO8601")
+    fires["firedate"] = pd.to_datetime(fires.FIREDATE, errors="coerce", format="ISO8601")  # some dates carry milliseconds
     bad_dates = fires.firedate.isna().sum()
     if bad_dates:
         print(f"WARNING: {bad_dates} fires have an unreadable FIREDATE and are dropped")
@@ -78,12 +101,13 @@ def load_fires(path: Path, table: Path | None = None) -> gpd.GeoDataFrame:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fires", required=True, type=Path, help="EFFIS burnt-area shapefile")
+    ap.add_argument("--master", type=Path, help="WP1 fires_master.parquet (optional)")
     ap.add_argument("--table", type=Path, help="EFFIS CSV table, only needed if the shapefile lacks the attributes")
     args = ap.parse_args()
 
     cells = gpd.read_file(OUT / "cells.gpkg", layer="cells")[["cell_id", "cell_area_ha", "in_mask", "geometry"]]
     assert cells.crs.to_epsg() == 3035, "cells.gpkg should already be in EPSG:3035"
-    fires = load_fires(args.fires, args.table)
+    fires = load_fires(args.fires, args.table, args.master)
 
     # The overlay: cut every fire into the pieces that fall in each cell
     pieces = gpd.overlay(fires, cells, how="intersection", keep_geom_type=True)
