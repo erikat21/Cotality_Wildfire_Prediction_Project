@@ -1,0 +1,7 @@
+# downloaded ERA5-Land files and built outputs are not committed
+data/
+outputs/
+*.nc
+*.grib
+*.idx
+*.zip
