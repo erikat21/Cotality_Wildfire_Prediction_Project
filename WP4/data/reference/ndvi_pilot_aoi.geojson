@@ -1,0 +1,38 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Central_Spain_NDVI_Pilot"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -4.0,
+              40.0
+            ],
+            [
+              -3.5,
+              40.0
+            ],
+            [
+              -3.5,
+              40.5
+            ],
+            [
+              -4.0,
+              40.5
+            ],
+            [
+              -4.0,
+              40.0
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
