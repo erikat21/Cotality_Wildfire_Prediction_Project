@@ -1,0 +1,67 @@
+# WP4 — ignore downloaded and generated geospatial data
+# Keep reproducible scripts, README, and small validation figures.
+
+# Large raw downloads and intermediate datasets
+data/raw/
+data/processed/
+outputs/terrain_checkpoints/
+
+# Generated binary raster/vector datasets
+*.tif
+*.tiff
+*.hdf
+*.h5
+*.hdf5
+*.nc
+*.nc4
+*.grib
+*.grb
+*.vrt
+*.img
+*.gpkg
+
+# Derived tables (share separately with WP5)
+*.parquet
+*.feather
+*.arrow
+
+# Download archives/temp files
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.part
+*.tmp
+*.download
+
+# Python artifacts and environments
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+.env.*
+!.env.example
+.cdsapirc
+*credentials*.json
+*secrets*.json
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Keep scripts/, README.md, data/reference/*.geojson, and output maps (*.png).
+# Note: repository ROOT .gitignore may also ignore *.csv globally.
+
+# Allow the three final WP4 datasets
+!outputs/terrain_cell.parquet
+!outputs/landcover_cell.parquet
+!outputs/veg_cell_month.parquet
