@@ -12,7 +12,7 @@ WP4 produces three complementary datasets:
 | `outputs/landcover_cell.parquet` | Two land-cover epochs per cell | 12,450 | `cell_id`, `epoch` |
 | `outputs/veg_cell_month.parquet` | Monthly lagged vegetation features per cell | 771,900 | `cell_id`, `year`, `month` |
 
-These files have passed the structural and cross-dataset checks in `scripts/11_validate_wp4_integration.py` (zero failures and zero warnings). This is a **data-integrity check**, not a guarantee that the predictors are causally informative or that every edge pixel represents land perfectly.
+These three final Parquet datasets are tracked in this repository and can be loaded directly after cloning. They have passed the structural and cross-dataset checks in `scripts/11_validate_wp4_integration.py` (zero failures and zero warnings). This is a **data-integrity check**, not a guarantee that the predictors are causally informative or that every edge pixel represents land perfectly.
 
 ## Data sources and methods
 
@@ -67,15 +67,40 @@ WP4/
 │   ├── 10_validate_ndvi_maps.py
 │   └── 11_validate_wp4_integration.py
 └── outputs/
-    ├── terrain_cell.parquet
-    ├── landcover_cell.parquet
-    ├── veg_cell_month.parquet
+    ├── terrain_cell.parquet      # Final tracked deliverable
+    ├── landcover_cell.parquet    # Final tracked deliverable
+    ├── veg_cell_month.parquet    # Final tracked deliverable
     ├── terrain_validation_maps/
     ├── landcover_validation_maps/
     └── ndvi_validation_maps/
 ```
 
-> The final Parquet files and most raw raster files are excluded from Git by `.gitignore`; downstream consumers need an **explicit data transfer** or a documented shared-storage path. Cloning this repository alone will not recreate those files.
+> **Data availability:** The three final Parquet files under `WP4/outputs/` are included in Git. Large raw GeoTIFFs, temporary checkpoints, and intermediate batch Parquet files remain excluded. Cloning the repository provides the final features, but reproducing the entire raw-data pipeline still requires separately obtaining the original inputs.
+
+## Data availability and loading
+
+The **three final processed feature datasets** are stored directly in this GitHub repository at `WP4/outputs/` and can be used without downloading or processing the underlying satellite and land-cover rasters. Approximate local file sizes are 416 KB (terrain), 464 KB (land cover), and 16,028 KB (vegetation).
+
+```python
+import pandas as pd
+
+terrain = pd.read_parquet("WP4/outputs/terrain_cell.parquet")
+landcover = pd.read_parquet("WP4/outputs/landcover_cell.parquet")
+vegetation = pd.read_parquet("WP4/outputs/veg_cell_month.parquet")
+
+print(terrain.shape)      # (6225, 12)
+print(landcover.shape)    # (12450, 14)
+print(vegetation.shape)   # (771900, 13)
+```
+
+Run these paths from the **repository root**. `pandas` requires a Parquet engine such as `pyarrow` to read the files. The three tables share 6,225 unique spatial `cell_id` values, but have **different temporal granularities**: do not merge both CLC epochs into a monthly table on `cell_id` alone.
+
+### What Git tracks
+
+- **Tracked:** WP4 processing and validation scripts, this README, the AOI reference GeoJSON, spatial-validation maps, and the three final Parquet datasets.
+- **Not tracked:** raw DEM/CORINE/MODIS rasters, the pilot inputs, temporary checkpoints, and intermediate batch Parquet files.
+
+The WP4 `.gitignore` contains explicit exceptions for the three final Parquet files. Updating a final dataset will create a new binary Git revision; avoid committing unnecessary repeated regenerations. To recompute the final NDVI output from raw MODIS data, first generate the three intermediate batch Parquet files as described below.
 
 ## Processing scripts
 
@@ -153,7 +178,7 @@ python -u WP4/scripts/11_validate_wp4_integration.py
 
 ### Reproducibility and data storage
 
-Intermediate batches (`veg_2016_2019.parquet`, `veg_2020_2023.parquet`, and `veg_2024_2026.parquet`) are **rebuildable products**, not required permanent deliverables. The three final Parquet datasets, raw GeoTIFFs, and other large geospatial files remain local unless transferred separately. Preserve `data/reference/ndvi_iberia_aoi.geojson`, the code, and the validation figures in version control.
+Intermediate batches (`veg_2016_2019.parquet`, `veg_2020_2023.parquet`, and `veg_2024_2026.parquet`) are **rebuildable products**, not required permanent deliverables. The three **final** Parquet datasets are committed to Git; the raw GeoTIFFs, temporary checkpoints, and intermediate batches stay local or are transferred separately for full reproducibility. Preserve `data/reference/ndvi_iberia_aoi.geojson`, the code, and validation figures in version control. The `.gitignore` explicitly exempts `outputs/terrain_cell.parquet`, `outputs/landcover_cell.parquet`, and `outputs/veg_cell_month.parquet` from the general Parquet ignore rule.
 
 ## Final validation results
 
@@ -178,7 +203,7 @@ The NDVI map suite includes April/August 2022 snapshots, August-minus-April 2022
 3. **Pixel-center coverage diagnostic:** `spatial_coverage_approx` estimates coverage from assigned pixel centers and approximate pixel area, **not** exact polygon intersection. It exceeds 1 in 381,176 records; values above 1 do not imply physically greater than 100% coverage. Do not interpret this raw column as a bounded fractional predictor.
 4. **Coastal and water cells:** Cell masks, raster-valid pixels, and land area are not identical. Investigate coastal or water-dominated cells if the model is sensitive to those areas.
 5. **Different spatial and temporal scales:** DEM is static, CLC has two epochs, and NDVI is monthly. Preserve correct join cardinalities and feature-time semantics.
-6. **Data distribution:** Raw datasets and output Parquet files are ignored by Git; arrange file transfer or shared storage with downstream work packages.
+6. **Data distribution:** The three final output Parquet files are version-controlled in Git. Raw GeoTIFFs and intermediate batch Parquet files are excluded; arrange separate access only if a downstream team needs to rerun processing from raw data.
 
 ## Suggested join patterns
 
@@ -188,4 +213,4 @@ The NDVI map suite includes April/August 2022 snapshots, August-minus-April 2022
 
 ## Status
 
-The three core WP4 outputs are processed, spatially reviewed, and structurally validated. The dependency order for steps 07–11 is: process monthly NDVI batches → diagnose quality → merge batches → generate NDVI maps → validate all WP4 datasets. The remaining handoff tasks are to publish the code and validation figures, transfer the ignored Parquet datasets securely, and agree on land-cover epoch and forecasting-date conventions with downstream modelers.
+The three core WP4 outputs are processed, spatially reviewed, and structurally validated. The dependency order for steps 07–11 is: process monthly NDVI batches → diagnose quality → merge batches → generate NDVI maps → validate all WP4 datasets. The final Parquet feature tables, code, and validation figures are suitable for repository handoff. Downstream modelers still need to agree on land-cover epoch and forecasting-date conventions.
