@@ -12,7 +12,7 @@ WP4 produces three complementary datasets:
 | `outputs/landcover_cell.parquet` | Two land-cover epochs per cell | 12,450 | `cell_id`, `epoch` |
 | `outputs/veg_cell_month.parquet` | Monthly lagged vegetation features per cell | 771,900 | `cell_id`, `year`, `month` |
 
-These files have passed the structural and cross-dataset checks in `scripts/10_validate_wp4_integration.py` (zero failures and zero warnings). This is a **data-integrity check**, not a guarantee that the predictors are causally informative or that every edge pixel represents land perfectly.
+These files have passed the structural and cross-dataset checks in `scripts/11_validate_wp4_integration.py` (zero failures and zero warnings). This is a **data-integrity check**, not a guarantee that the predictors are causally informative or that every edge pixel represents land perfectly.
 
 ## Data sources and methods
 
@@ -63,8 +63,9 @@ WP4/
 │   ├── 06_prepare_ndvi_aoi.py
 │   ├── 07_process_ndvi.py
 │   ├── 08_diagnose_ndvi_quality.py
-│   ├── 09_validate_ndvi_maps.py
-│   └── 10_validate_wp4_integration.py
+│   ├── 09_merge_ndvi_batches.py
+│   ├── 10_validate_ndvi_maps.py
+│   └── 11_validate_wp4_integration.py
 └── outputs/
     ├── terrain_cell.parquet
     ├── landcover_cell.parquet
@@ -88,8 +89,9 @@ WP4/
 | `06_prepare_ndvi_aoi.py` | Prepare AppEEARS area-of-interest geometry |
 | `07_process_ndvi.py` | Process MODIS NDVI and pixel reliability into lag-one cell-month features |
 | `08_diagnose_ndvi_quality.py` | Inspect quality flags behind completely missing NDVI cell-months |
-| `09_validate_ndvi_maps.py` | Generate vegetation-seasonality, interannual-change, and missingness maps |
-| `10_validate_wp4_integration.py` | Check schemas, coverage, dates, ranges, duplicate keys, and cell alignment |
+| `09_merge_ndvi_batches.py` | Safely merge three processed NDVI batches after verifying schemas, spatial grids, continuous source months, and lag-one dates |
+| `10_validate_ndvi_maps.py` | Generate vegetation-seasonality, interannual-change, and missingness maps |
+| `11_validate_wp4_integration.py` | Check schemas, coverage, dates, ranges, duplicate keys, and cell alignment |
 
 ## Reproducing the outputs
 
@@ -107,23 +109,51 @@ python -u WP4/scripts/04_process_landcover.py
 python -u WP4/scripts/05_validate_landcover.py
 ```
 
-To process an individual MODIS download batch:
+### MODIS batch processing and reproducible merging
+
+The raw AppEEARS download directories must contain the corresponding monthly NDVI and `pixel_reliability` GeoTIFFs. Run the following commands from the **repository root** in PowerShell:
 
 ```powershell
 python -u WP4/scripts/07_process_ndvi.py `
   --input-dir WP4/data/raw/modis/2016_2019 `
   --start 2016-04 --end 2019-12 `
   --output WP4/outputs/veg_2016_2019.parquet
+
+python -u WP4/scripts/07_process_ndvi.py `
+  --input-dir WP4/data/raw/modis/2020_2023 `
+  --start 2020-01 --end 2023-12 `
+  --output WP4/outputs/veg_2020_2023.parquet
+
+python -u WP4/scripts/07_process_ndvi.py `
+  --input-dir WP4/data/raw/modis/2024_2026 `
+  --start 2024-01 --end 2026-07 `
+  --output WP4/outputs/veg_2024_2026.parquet
 ```
 
-Repeat with the two other batches and their corresponding dates. Combine the three batch outputs only after checking schema consistency, continuity, lag-one alignment, and unique keys. The verified merged deliverable is `outputs/veg_cell_month.parquet`. Run:
+Once the three intermediate Parquet files are present, run **Step 09 — `09_merge_ndvi_batches.py`**:
 
 ```powershell
-python -u WP4/scripts/09_validate_ndvi_maps.py
-python -u WP4/scripts/10_validate_wp4_integration.py
+# On a fresh run, when veg_cell_month.parquet does not yet exist
+python -u WP4/scripts/09_merge_ndvi_batches.py
+
+# Use only when deliberately rebuilding an existing final dataset
+python -u WP4/scripts/09_merge_ndvi_batches.py --overwrite
 ```
 
-**Note:** The final batch-merging step was performed separately during development; it is not currently exposed as a dedicated numbered script. If full one-command reproducibility is required, this should be added before the next handoff.
+The merge script checks each batch's expected date range (45, 48, and 31 source months), identical 6,225-cell coverage, required fields, duplicate keys, valid NDVI/pixel counts, and exact one-month lag. It then validates the **124-month, 771,900-row** combined dataset before writing `outputs/veg_cell_month.parquet`. An existing output is **not** overwritten unless `--overwrite` is explicitly supplied. On a successful validated rebuild, replacement uses an intermediate file and an atomic rename on the same filesystem; invalid inputs do not replace the existing final dataset.
+
+**If intermediate batch Parquet files were removed during cleanup:** this is expected in the current lightweight `outputs/` layout. The existing verified `veg_cell_month.parquet` remains usable. `09_merge_ndvi_batches.py` requires all three batch files and will report which inputs are missing. Regenerate them with the three `07_process_ndvi.py` commands above **only when a rebuild is needed**, using the locally retained raw AppEEARS GeoTIFFs. There is no need to overwrite a verified final dataset simply to test the merge step.
+
+After the final NDVI data are available, run **Step 10 (spatial validation)** and **Step 11 (final integration validation)**:
+
+```powershell
+python -u WP4/scripts/10_validate_ndvi_maps.py
+python -u WP4/scripts/11_validate_wp4_integration.py
+```
+
+### Reproducibility and data storage
+
+Intermediate batches (`veg_2016_2019.parquet`, `veg_2020_2023.parquet`, and `veg_2024_2026.parquet`) are **rebuildable products**, not required permanent deliverables. The three final Parquet datasets, raw GeoTIFFs, and other large geospatial files remain local unless transferred separately. Preserve `data/reference/ndvi_iberia_aoi.geojson`, the code, and the validation figures in version control.
 
 ## Final validation results
 
@@ -158,4 +188,4 @@ The NDVI map suite includes April/August 2022 snapshots, August-minus-April 2022
 
 ## Status
 
-The three core WP4 outputs are processed, spatially reviewed, and structurally validated. The remaining handoff tasks are to publish the code and validation figures, transfer the ignored Parquet datasets securely, and agree on land-cover epoch and forecasting-date conventions with downstream modelers.
+The three core WP4 outputs are processed, spatially reviewed, and structurally validated. The dependency order for steps 07–11 is: process monthly NDVI batches → diagnose quality → merge batches → generate NDVI maps → validate all WP4 datasets. The remaining handoff tasks are to publish the code and validation figures, transfer the ignored Parquet datasets securely, and agree on land-cover epoch and forecasting-date conventions with downstream modelers.

@@ -1,7 +1,7 @@
 """WP4 final integration validation (read-only).
 
 Run from repository root:
-    python -u WP4/scripts/10_validate_wp4_integration.py
+    python -u WP4/scripts/11_validate_wp4_integration.py
 
 Checks alignment of terrain, CORINE land cover, and lagged MODIS NDVI.
 Does not assign land-cover epochs to modeling months or generate a merged table.

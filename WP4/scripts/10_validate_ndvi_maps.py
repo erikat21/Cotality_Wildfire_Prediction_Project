@@ -1,7 +1,7 @@
 """WP4 MODIS NDVI spatial validation maps.
 
 Run from repository root:
-    python -u WP4/scripts/09_validate_ndvi_maps.py
+    python -u WP4/scripts/10_validate_ndvi_maps.py
 
 Inputs:
     wp2/outputs/cells.gpkg
