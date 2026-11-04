@@ -5,7 +5,7 @@ Cleans and standardizes the raw EFFIS tabular wildfire data for Spain and Portug
 ## Setup
     pip install pandas numpy pyarrow
 
-Effis data table file goes into 'data/raw' (not committed; add 'data/' to gitignore or specify .csv and .parquet files in gitignore):
+Effis data table file goes into 'WP1/data/raw' (not committed; add 'WP1/data/' to gitignore or specify .csv and .parquet files in gitignore):
 - `effis_data_table_29thSept2026.csv` *(Note: update `input_file` in `process_effis_data.py` if your downloaded file has a different name)*.
 
 ## Run, in order
