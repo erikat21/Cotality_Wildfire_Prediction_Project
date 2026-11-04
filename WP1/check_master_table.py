@@ -1,7 +1,7 @@
 import pandas as pd
 
 # Load the parquet file
-df = pd.read_parquet("../data/processed/fires_master.parquet")
+df = pd.read_parquet("data/processed/fires_master.parquet")
 
 print("data shape")
 print(f"Total Fires: {df.shape[0]}")
