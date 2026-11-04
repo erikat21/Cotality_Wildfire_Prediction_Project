@@ -1,6 +1,8 @@
 *.csv
 *.parquet
 wp2/data/boundaries
-wp2/data/raw/*
-!wp2/data/raw/**/*.dvc
+*.dbf
+*.prj
+*.shp
+*.shx
 wp2/outputs/*

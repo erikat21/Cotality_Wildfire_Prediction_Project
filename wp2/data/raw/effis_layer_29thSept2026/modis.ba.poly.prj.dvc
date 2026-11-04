@@ -1,0 +1,5 @@
+outs:
+- md5: 770edf0b1e8912c4dfe2b5d3a79d8eba
+  size: 144
+  hash: md5
+  path: modis.ba.poly.prj

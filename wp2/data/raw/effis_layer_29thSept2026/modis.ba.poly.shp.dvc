@@ -1,0 +1,5 @@
+outs:
+- md5: 2ce60e529e4ddcc2a2a04c12f9ef2ed1
+  size: 348420708
+  hash: md5
+  path: modis.ba.poly.shp

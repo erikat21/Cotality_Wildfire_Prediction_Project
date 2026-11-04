@@ -1,0 +1,5 @@
+outs:
+- md5: 7ec69ee0c4e6c90013ac5cdf120c7def
+  size: 164146962
+  hash: md5
+  path: modis.ba.poly.dbf
