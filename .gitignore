@@ -1,2 +1,5 @@
 *.csv
 *.parquet
+WP1/data/*
+wp2/data/*
+wp2/outputs/*
