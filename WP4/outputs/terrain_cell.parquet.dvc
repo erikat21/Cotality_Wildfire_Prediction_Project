@@ -1,0 +1,5 @@
+outs:
+- md5: 0e990d9a2153ec68bdf92e3aca4363e5
+  size: 425093
+  hash: md5
+  path: terrain_cell.parquet

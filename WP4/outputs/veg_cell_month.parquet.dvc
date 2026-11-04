@@ -1,0 +1,5 @@
+outs:
+- md5: 2ebff5f2f489d8b743a39efb650c6a7e
+  size: 16412002
+  hash: md5
+  path: veg_cell_month.parquet

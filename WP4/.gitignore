@@ -62,6 +62,6 @@ desktop.ini
 # Note: repository ROOT .gitignore may also ignore *.csv globally.
 
 # Allow the three final WP4 datasets
-!outputs/terrain_cell.parquet
-!outputs/landcover_cell.parquet
-!outputs/veg_cell_month.parquet
+# !outputs/terrain_cell.parquet
+# !outputs/landcover_cell.parquet
+# !outputs/veg_cell_month.parquet
