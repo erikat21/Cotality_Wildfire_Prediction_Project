@@ -53,6 +53,6 @@ def process_effis_csv(input_path: str, output_path: str):
     fires_master.to_parquet(output_path)
 
 if __name__ == "__main__":
-    input_file = "../data/raw/effis_data_table_29thSept2026.csv"  # Update with your local filename
-    output_file = "../data/processed/fires_master.parquet"
+    input_file = "WP1/data/raw/effis_data_table_29thSept2026.csv"  # Update with your local filename
+    output_file = "WP1/data/processed/fires_master.parquet"
     process_effis_csv(input_file, output_file)

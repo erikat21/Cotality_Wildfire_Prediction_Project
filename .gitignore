@@ -1,5 +1,6 @@
 *.csv
 *.parquet
 WP1/data/*
+!WP1/data/**/*.dvc
 wp2/data/*
 wp2/outputs/*
