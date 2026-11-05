@@ -1,9 +1,9 @@
 # Cotality_Wildfire_Prediction_Project
 
 ## Setup
-'''
+```
 pip install dvc
-'''
+```
 
 Data (not committed): 
 - `WP1/data/raw/effis_data_table_29thSept2026.csv` : needed to run process_effis_data.py in WP1
@@ -13,6 +13,6 @@ Data (not committed):
 - `WP4/outputs/veg_cell_month.parquet` : output from 09_merge_ndvi_batches.py in WP4 needed for WP5
 
 ## Run (to get Data not committed)
-'''
+```
 dvc pull
-'''
+```
