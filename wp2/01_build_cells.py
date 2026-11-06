@@ -44,10 +44,14 @@ N_ROWS = int(round((NORTH - SOUTH) / STEP)) + 1  # 82
 N_COLS = int(round((EAST - WEST) / STEP)) + 1    # 143
 EQUAL_AREA = "EPSG:3035"
 
-# Mask rule from the vn0 brief: keep a cell if >= 50% land and >= 50% of the land is in Spain/Portugal
-MIN_LAND_FRAC = 0.5
-MIN_IBERIA_SHARE = 0.5
+# Mask rule: keep every cell that has ANY Spanish or Portuguese land in it (coast, islands,
+# borders included), as the mentors asked on 2026-11-04. The vn0 brief only says "land mask";
+# the earlier rule (>= 50% land and >= 50% of the land in ES/PT) was our own choice and dropped
+# 330 coastal and border cells that can still burn.
+# land_frac and iberia_share stay in the table so anyone can apply a stricter filter later.
 IBERIA = {"ES", "PT"}
+MOSTLY_SEA_BELOW = 0.5   # edge_type "coast": less than half of the cell is land
+
 
 
 def make_grid() -> gpd.GeoDataFrame:
@@ -87,29 +91,44 @@ def main():
     by_country = area_by_group(cells, countries, "country")
     land = by_country.groupby("cell_id")["area_ha"].sum().rename("land_area_ha")
     iberia = by_country[by_country.country.isin(IBERIA)].groupby("cell_id")["area_ha"].sum().rename("iberia_area_ha")
-    top = by_country.sort_values("area_ha", ascending=False).drop_duplicates("cell_id").set_index("cell_id")
+    # Country with the most land in the cell. Spain/Portugal win over France/Andorra/Morocco
+    # whenever they have any land there, so every in-mask cell is labelled ES or PT.
+    by_country["is_iberia"] = by_country.country.isin(IBERIA)
+    top = (by_country.sort_values(["is_iberia", "area_ha"], ascending=False)
+           .drop_duplicates("cell_id").set_index("cell_id"))
 
-    # NUTS 2 region with the most area in the cell
+    # NUTS 2 region with the most area in the cell (ES/PT regions first, same as country)
     by_nuts = area_by_group(cells, nuts2, "nuts2")
-    top_nuts = by_nuts.sort_values("area_ha", ascending=False).drop_duplicates("cell_id").set_index("cell_id")["nuts2"]
+    by_nuts["is_iberia"] = by_nuts.nuts2.str[:2].isin(IBERIA)
+    top_nuts = (by_nuts.sort_values(["is_iberia", "area_ha"], ascending=False)
+                .drop_duplicates("cell_id").set_index("cell_id")["nuts2"])
 
     cells = cells.set_index("cell_id")
     cells = cells.join(land).join(iberia)
     cells[["land_area_ha", "iberia_area_ha"]] = cells[["land_area_ha", "iberia_area_ha"]].fillna(0.0)
     cells["land_frac"] = (cells.land_area_ha / cells.cell_area_ha).clip(upper=1.0)
-    cells["country"] = top["country"]                       # country with the most land in the cell
+    cells["country"] = top["country"]
     cells["share_in_country"] = top["area_ha"] / cells.land_area_ha
     cells["iberia_share"] = cells.iberia_area_ha / cells.land_area_ha  # ES + PT together, share of the land
     cells["nuts2"] = top_nuts
-    cells["in_mask"] = (
-        (cells.land_frac >= MIN_LAND_FRAC) & (cells.iberia_share >= MIN_IBERIA_SHARE)
-    ).astype(int)
+    cells["in_mask"] = (cells.iberia_area_ha > 0).astype(int)
+    # edge_type, for in-mask cells only (empty for cells outside the mask):
+    #   interior     at least half land, all of it ES/PT
+    #   coast        less than half land (mostly sea): ERA5-Land has few or no land points here,
+    #                so weather may need the nearest land point
+    #   border       some of the land is France, Andorra or Morocco (ES/PT share < 1)
+    #   coast_border both
+    coast = cells.land_frac < MOSTLY_SEA_BELOW
+    border = cells.iberia_share < 0.9999
+    cells["edge_type"] = np.select(
+        [coast & border, coast, border], ["coast_border", "coast", "border"], default="interior")
+    cells.loc[cells.in_mask == 0, "edge_type"] = None
     cells = cells.reset_index()
 
     cols = ["cell_id", "row", "col", "lon", "lat", "cell_area_ha", "land_area_ha", "land_frac",
-            "country", "share_in_country", "iberia_share", "nuts2", "in_mask"]
+            "iberia_area_ha", "country", "share_in_country", "iberia_share", "nuts2", "in_mask", "edge_type"]
     cells = cells[cols + ["geometry"]]
-    for c in ["cell_area_ha", "land_area_ha"]:
+    for c in ["cell_area_ha", "land_area_ha", "iberia_area_ha"]:
         cells[c] = cells[c].round(1)
     for c in ["land_frac", "share_in_country", "iberia_share"]:
         cells[c] = cells[c].round(4)
@@ -122,19 +141,28 @@ def main():
     print(f"grid: {N_ROWS} x {N_COLS} = {len(cells):,} cells")
     print(f"in mask: {len(m):,} cells  (ES {sum(m.country == 'ES'):,}, PT {sum(m.country == 'PT'):,}, other {sum(~m.country.isin(IBERIA)):,})")
     print(f"cell area (ha): min {cells.cell_area_ha.min():,.0f}, max {cells.cell_area_ha.max():,.0f} (cells shrink going north)")
-    print(f"mask land area: {m.land_area_ha.sum() / 100:,.0f} km2")
+    print("in-mask cells by edge_type:")
+    print(m.edge_type.value_counts().to_string())
+    print(f"mask ES/PT land area: {m.iberia_area_ha.sum() / 100:,.0f} km2")
     print("in-mask cells by NUTS 2:")
     print(m.groupby("nuts2").size().to_string())
 
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(10, 7))
+    fig, ax = plt.subplots(figsize=(13, 7))
     cells4326 = cells.to_crs("EPSG:4326")
     land_out = cells4326[(cells4326.in_mask == 0) & (cells4326.land_frac > 0)]
     land_out.plot(ax=ax, color="lightgrey", linewidth=0)
-    cells4326[cells4326.in_mask == 1].plot(ax=ax, color="tab:orange", edgecolor="white", linewidth=0.1)
-    ax.set_title(f"vn0 grid: {len(m):,} of {len(cells):,} cells in the Iberia mask (orange); grey = other land")
+    colours = {"interior": "tab:orange", "coast": "tab:blue", "border": "tab:purple", "coast_border": "tab:green"}
+    from matplotlib.patches import Patch
+    handles = [Patch(color="lightgrey", label="land in other countries (not in mask)")]
+    for kind, colour in colours.items():
+        part = cells4326[cells4326.edge_type == kind]
+        part.plot(ax=ax, color=colour, edgecolor="white", linewidth=0.1)
+        handles.append(Patch(color=colour, label=f"{kind}: {len(part):,}"))
+    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.01, 1), fontsize=8)
+    ax.set_title(f"vn0 grid: {len(m):,} of {len(cells):,} cells touch Spain or Portugal")
     ax.set_xlabel("longitude (°)")
     ax.set_ylabel("latitude (°)")
     fig.tight_layout()
