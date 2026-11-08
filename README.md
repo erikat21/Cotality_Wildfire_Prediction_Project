@@ -2,7 +2,7 @@
 
 ## Setup
 ```
-pip install dvc
+pip install dvc dvc-gs
 ```
 
 Data (not committed): 

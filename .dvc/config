@@ -2,4 +2,5 @@
     remote = gcs_remote
 ['remote "gcs_remote"']
     url = gs://cotality-wildfire-project/dvc_store
-    credentialpath = C:\Users\Erika\iCloudDrive\Documents\GitHub\Cotality_Wildfire_Prediction_Project\service_account.json
+    allow_anonymous_login = true
+    credentialpath = service_account.json
