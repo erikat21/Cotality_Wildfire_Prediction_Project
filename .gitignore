@@ -6,3 +6,4 @@ wp2/data/boundaries
 *.shp
 *.shx
 wp2/outputs/*
+*.json

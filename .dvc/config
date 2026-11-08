@@ -1,4 +1,5 @@
 [core]
-    remote = local_store
-['remote "local_store"']
-    url = C:\DVC_Remote_Storage
+    remote = gcs_remote
+['remote "gcs_remote"']
+    url = gs://cotality-wildfire-project/dvc_store
+    credentialpath = C:\Users\Erika\iCloudDrive\Documents\GitHub\Cotality_Wildfire_Prediction_Project\service_account.json
