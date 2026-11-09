@@ -68,3 +68,13 @@ desktop.ini
 
 # Terrain intermediate checkpoints
 outputs/terrain_checkpoints_6555/
+
+# WP4 local backups and archived intermediate outputs
+outputs/backup_6225/
+outputs/archive/
+
+# Terrain processing checkpoints (all grid versions)
+outputs/terrain_checkpoints*/
+
+# Temporary WP4 validation and patch scripts
+scripts/patch_landcover_output.py
