@@ -65,3 +65,6 @@ desktop.ini
 # !outputs/terrain_cell.parquet
 # !outputs/landcover_cell.parquet
 # !outputs/veg_cell_month.parquet
+
+# Terrain intermediate checkpoints
+outputs/terrain_checkpoints_6555/
