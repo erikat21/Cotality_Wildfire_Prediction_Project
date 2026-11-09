@@ -2,41 +2,72 @@
 
 ## Overview
 
-Work Package 4 (WP4) prepares terrain, land-cover, and vegetation predictors for the **European Wildfire and Property Intelligence Modeling** capstone project, with a focus on the Spain–Portugal study area. All processed features are aligned to the **6,225 in-mask grid cells** defined by WP2 and identified by `cell_id`.
+Work Package 4 (WP4) develops environmental predictors for the **European Wildfire and Property Intelligence Modeling** project, focusing on Spain and Portugal. All final features use the current WP2 0.1° grid and its **6,555 in-mask cells**, identified by the unchanged `cell_id` convention. The updated WP2 mask retains every grid cell that intersects Spanish or Portuguese land, including coastal and international-border cells; the previous 6,225-cell mask excluded 330 of these cells.
 
-WP4 produces three complementary datasets:
+WP4 provides three feature tables for downstream wildfire-occurrence modeling:
 
-| Output | Granularity | Rows | Key |
+| Final output | Granularity | Rows | Join keys |
 |---|---|---:|---|
-| `outputs/terrain_cell.parquet` | Static, one row per cell | 6,225 | `cell_id` |
-| `outputs/landcover_cell.parquet` | Two land-cover epochs per cell | 12,450 | `cell_id`, `epoch` |
-| `outputs/veg_cell_month.parquet` | Monthly lagged vegetation features per cell | 771,900 | `cell_id`, `year`, `month` |
+| `outputs/terrain_cell.parquet` | Static terrain, one row per cell | 6,555 | `cell_id` |
+| `outputs/landcover_cell.parquet` | CORINE land cover, two epochs per cell | 13,110 | `cell_id`, `epoch` |
+| `outputs/veg_cell_month.parquet` | Monthly NDVI lagged by one month | 812,820 | `cell_id`, `year`, `month` |
 
-These three final Parquet datasets are tracked in this repository and can be loaded directly after cloning. They have passed the structural and cross-dataset checks in `scripts/11_validate_wp4_integration.py` (zero failures and zero warnings). This is a **data-integrity check**, not a guarantee that the predictors are causally informative or that every edge pixel represents land perfectly.
+The three final Parquet datasets are **tracked with DVC**, not stored as raw Parquet blobs in Git. Git tracks their corresponding `.parquet.dvc` pointer files. After cloning and configuring access to the team's DVC remote, use `dvc pull` to retrieve the files.
+
+The updated outputs passed `scripts/11_validate_wp4_integration.py` against the current WP2 mask: **0 failures and 0 warnings**. This establishes structural consistency, not causal validity or model predictive performance.
 
 ## Data sources and methods
 
+### WP2 spatial definition
+
+The WP2 grid contains **11,726** cells in total, of which **6,555** have `in_mask = 1`. The new mask includes **330 additional coastal and border cells**. WP2 also exposes `land_frac`, `iberia_share`, and `edge_type` (`interior`, `coast`, `border`, `coast_border`). These fields should remain available during downstream modeling, particularly because some included cells contain very little Spanish or Portuguese land.
+
+Cell boundaries and terrain processing use **EPSG:3035** (ETRS89 / LAEA Europe) where area-preserving spatial operations are required. The `cell_id` indexing rule remains unchanged.
+
 ### Terrain — Copernicus DEM GLO-30
 
-The terrain workflow downloads Copernicus GLO-30 elevation tiles, processes them in the study area, and aggregates terrain metrics onto WP2 cells. Features include mean and standard deviation of elevation, mean slope, a high-slope percentile, southern-facing aspect share, aspect concentration, and DEM coverage diagnostics. Terrain processing uses an equal-area projected working grid (EPSG:3035) for the WP2 alignment.
+Copernicus GLO-30 elevation tiles are processed in buffered geographic blocks and aggregated to WP2 cells on a 30 m projected working lattice. The resulting features include `elev_mean`, `elev_std`, `slope_mean`, `slope_p90`, `aspect_south_share`, `aspect_resultant`, and supporting pixel-count/coverage diagnostics.
+
+The updated mask required **29 DEM blocks**, including one additional southern-edge block (`cop30_w-006.00_s+34.00.tif`). All **6,555** cells have DEM pixels and non-missing elevation and slope features. **Four coastal cells** (`867`, `9380`, `9447`, `10041`) have undefined aspect features because `n_aspect_pixels = 0` after the minimum-slope directional-pixel criterion; their aspect values are deliberately kept as `NaN`, not changed to zero.
+
+`dem_coverage_frac_cell` describes DEM data availability across the entire grid cell. A high value is **not** evidence that the cell is mostly land: coastal cells can contain sea-level raster pixels.
 
 ### Land cover — CORINE Land Cover (CLC), 2012 and 2018
 
-CORINE categorical raster values are decoded using the corresponding value-attribute tables (VAT; e.g., `CODE_12` and `CODE_18`) rather than treating the GeoTIFF's integer pixel values as CLC codes directly. The workflow aggregates categories into fractional shares, including artificial surfaces, agriculture, forest, shrub/herbaceous cover, bare/sparse cover, wetlands, and water.
+CORINE 100 m categorical rasters are read using their raster value-attribute tables (VAT), including `CODE_12` and `CODE_18`. Raster class values are mapped to seven broad groups: artificial, agriculture, forest, shrub/herbaceous, bare/sparse, wetland, and water. Unclassified `CODE=999` is excluded.
 
-Each grid cell has one record for 2012 and one for 2018. Category shares sum to approximately 1 within each epoch (validated to ±0.001). **No mapping from the two CLC epochs to model months is imposed by WP4.** The downstream team must define a temporally defensible mapping before joining to monthly observations, taking care to avoid using future land-cover information.
+Each epoch contains **6,555** cells, yielding **13,110** rows. Both epochs have no cells with zero classified pixels; land-cover shares sum to one for the valid classified data, and no duplicate `cell_id` + `epoch` keys were found. The mean classified-pixel `valid_fraction` was approximately **0.999525** in both epochs.
+
+**WP4 does not assign a CORINE epoch to each model month.** The downstream modeling team must choose a defensible time mapping, avoiding use of future information as a historical predictor.
 
 ### Vegetation — NASA MODIS MOD13A3.061 monthly NDVI
 
-Monthly NDVI and `pixel_reliability` GeoTIFFs were obtained through NASA AppEEARS for source months **April 2016–July 2026** (124 months), in three download batches:
+MODIS monthly NDVI and `pixel_reliability` GeoTIFFs were downloaded via NASA AppEEARS for **April 2016–July 2026** (124 source months), originally in three batches:
 
-- April 2016–December 2019 (45 months)
-- January 2020–December 2023 (48 months)
-- January 2024–July 2026 (31 months)
+| Batch | Source months | Number of months |
+|---|---|---:|
+| `2016_2019` | Apr 2016–Dec 2019 | 45 |
+| `2020_2023` | Jan 2020–Dec 2023 | 48 |
+| `2024_2026` | Jan 2024–Jul 2026 | 31 |
 
-NDVI is scaled using the GeoTIFF band scale (`0.0001` in the inspected files) and filtered to retain observations with pixel reliability codes **0 (good)** or **1 (marginal)**. Codes **2 (snow/ice)** and **3 (cloud)** are excluded. Valid pixels are assigned to WP2 grid cells by their pixel centers and summarized to mean NDVI, within-cell standard deviation, quality/valid-pixel fractions, and pixel-count diagnostics.
+NDVI uses the GeoTIFF's band scale (observed as `0.0001`) and offset. Pixels are retained only when scaled NDVI is in `[-1,1]` and pixel reliability is **0 (good)** or **1 (marginal)**; codes **2 (snow/ice)** and **3 (cloud)** are excluded. Valid pixels are allocated to WP2 grid cells by pixel center, then summarized to `ndvi_lag1`, `ndvi_std`, valid/quality fractions, and pixel counts.
 
-**Temporal convention:** `source_year` / `source_month` identify the MODIS observation month; `year` / `month` identify the **following** month in which the lag-one predictor `ndvi_lag1` is intended to be used. Thus an April 2022 observation appears as a May 2022 model feature. The target-date range is **May 2016–August 2026**. This one-month offset does not by itself guarantee leakage-free downstream modeling: forecast issuance dates and the temporal conventions for all other predictors and labels must also be checked.
+**Lag-one convention:** `source_year` and `source_month` identify the satellite observation; `year` and `month` identify the **following** model month. For example, April 2022 NDVI is used for May 2022. The output spans **May 2016–August 2026**, with **812,820** cell-month rows. This lag is intended to reduce same-month burn-scar leakage but does not by itself establish leakage-free forecasts.
+
+#### Supplemental AOI for the expanded WP2 mask
+
+After expanding the WP2 mask to 6,555 cells, two southern-edge cells lacked source MODIS pixels in all 124 months:
+
+| `cell_id` | Grid center `(lon, lat)` | `land_frac` | Originally missing source months |
+|---|---|---:|---:|
+| `11627` | `(-5.4, 35.9)` | 0.6239 | 124 |
+| `11628` | `(-5.3, 35.9)` | 0.0932 | 124 |
+
+The supplemental request geometry was generated using `scripts/create_ndvi_supplement_aoi.py` from the full WP2 polygons for these cells with a **1,500 m buffer**. It is saved as `data/reference/ndvi_supplement_aoi.geojson` (EPSG:4326, one valid feature; approximately 295.01 km²). A separate AppEEARS download used the same MOD13A3.061 NDVI/Pixel Reliability layers and April 2016–July 2026 source-date range.
+
+The supplemental GeoTIFFs were processed separately with `scripts/07_process_ndvi.py`, restricting `--cells` to the two target polygons. The resulting 248 supplemental records all contained valid NDVI and replaced the **248 originally zero-coverage** cell-month records in the expanded baseline dataset. All other **812,572** records remained unchanged, as verified by a dataframe equality check.
+
+The final NDVI dataset contains **2,976 missing NDVI values** out of **812,820** rows (**approximately 0.366%**) and **zero records with `n_total_pixels = 0`**. The remaining missing observations have no valid pixels after the source/quality screening; they remain `NaN` and should not be filled with zero automatically. Some high-water-fraction coastal cells have limited reliable vegetation signal even when source pixels exist.
 
 ## Repository structure
 
@@ -45,15 +76,17 @@ WP4/
 ├── .gitignore
 ├── README.md
 ├── data/
-│   ├── raw/                    # Large local inputs; not tracked by Git
-│   │   ├── dem/
-│   │   ├── corine/
+│   ├── raw/                              # Local raw DEM, CORINE and MODIS files
+│   │   ├── dem/blocks/
+│   │   ├── corine/{2012,2018}/
 │   │   └── modis/
 │   │       ├── 2016_2019/
 │   │       ├── 2020_2023/
-│   │       └── 2024_2026/
+│   │       ├── 2024_2026/
+│   │       └── supplement_6555/          # Supplemental AppEEARS downloads
 │   └── reference/
-│       └── ndvi_iberia_aoi.geojson
+│       ├── ndvi_iberia_aoi.geojson
+│       └── ndvi_supplement_aoi.geojson
 ├── scripts/
 │   ├── 01_download_dem.py
 │   ├── 02_process_terrain.py
@@ -65,21 +98,33 @@ WP4/
 │   ├── 08_diagnose_ndvi_quality.py
 │   ├── 09_merge_ndvi_batches.py
 │   ├── 10_validate_ndvi_maps.py
-│   └── 11_validate_wp4_integration.py
+│   ├── 11_validate_wp4_integration.py
+│   └── create_ndvi_supplement_aoi.py
 └── outputs/
-    ├── terrain_cell.parquet      # Final tracked deliverable
-    ├── landcover_cell.parquet    # Final tracked deliverable
-    ├── veg_cell_month.parquet    # Final tracked deliverable
+    ├── terrain_cell.parquet              # Final DVC-managed dataset
+    ├── terrain_cell.parquet.dvc
+    ├── landcover_cell.parquet            # Final DVC-managed dataset
+    ├── landcover_cell.parquet.dvc
+    ├── veg_cell_month.parquet            # Final DVC-managed dataset
+    ├── veg_cell_month.parquet.dvc
     ├── terrain_validation_maps/
     ├── landcover_validation_maps/
     └── ndvi_validation_maps/
 ```
 
-> **Data availability:** The three final Parquet files under `WP4/outputs/` are included in Git. Large raw GeoTIFFs, temporary checkpoints, and intermediate batch Parquet files remain excluded. Cloning the repository provides the final features, but reproducing the entire raw-data pipeline still requires separately obtaining the original inputs.
+Temporary checkpoints, experimental Parquet files, intermediate monthly batches, and most raw inputs are not required for routine use of the final features. Do not commit API keys or GCS service-account credentials.
 
-## Data availability and loading
+## Data availability and DVC
 
-The **three final processed feature datasets** are stored directly in this GitHub repository at `WP4/outputs/` and can be used without downloading or processing the underlying satellite and land-cover rasters. Approximate local file sizes are 416 KB (terrain), 464 KB (land cover), and 16,028 KB (vegetation).
+The final Parquet datasets are downloaded from the project's **Google Cloud Storage DVC remote**. Install the DVC GCS extension, then pull from the repository root:
+
+```powershell
+python -m pip install dvc dvc-gs
+dvc remote list
+dvc pull
+```
+
+The repository configuration specifies `gcs_remote` at `gs://cotality-wildfire-project/dvc_store`. Downloading requires read access to the referenced GCS objects. **Uploading a new dataset version requires separate authenticated write permission; public read access does not grant push access.**
 
 ```python
 import pandas as pd
@@ -88,129 +133,172 @@ terrain = pd.read_parquet("WP4/outputs/terrain_cell.parquet")
 landcover = pd.read_parquet("WP4/outputs/landcover_cell.parquet")
 vegetation = pd.read_parquet("WP4/outputs/veg_cell_month.parquet")
 
-print(terrain.shape)      # (6225, 12)
-print(landcover.shape)    # (12450, 14)
-print(vegetation.shape)   # (771900, 13)
+print(terrain.shape)     # (6555, 12)
+print(landcover.shape)   # (13110, 14)
+print(vegetation.shape)  # (812820, 13)
 ```
 
-Run these paths from the **repository root**. `pandas` requires a Parquet engine such as `pyarrow` to read the files. The three tables share 6,225 unique spatial `cell_id` values, but have **different temporal granularities**: do not merge both CLC epochs into a monthly table on `cell_id` alone.
+Run the code from the repository root with a Parquet engine such as `pyarrow` available. The `epoch` dimension in land cover and the `year`/`month` dimension in vegetation must be handled explicitly when joining these outputs.
 
-### What Git tracks
-
-- **Tracked:** WP4 processing and validation scripts, this README, the AOI reference GeoJSON, spatial-validation maps, and the three final Parquet datasets.
-- **Not tracked:** raw DEM/CORINE/MODIS rasters, the pilot inputs, temporary checkpoints, and intermediate batch Parquet files.
-
-The WP4 `.gitignore` contains explicit exceptions for the three final Parquet files. Updating a final dataset will create a new binary Git revision; avoid committing unnecessary repeated regenerations. To recompute the final NDVI output from raw MODIS data, first generate the three intermediate batch Parquet files as described below.
+When publishing an updated validated version, run `dvc add` for the three final Parquet paths, upload with `dvc push` using authorized credentials, and commit the updated `.parquet.dvc` pointers to Git. Coordinate the upload and Git commit so teammates never receive a pointer to data that have not yet been pushed.
 
 ## Processing scripts
 
 | Script | Purpose |
 |---|---|
-| `01_download_dem.py` | Download DEM blocks for the study region |
-| `02_process_terrain.py` | Aggregate elevation, slope, aspect, and coverage to cells |
-| `03_validate_terrain_maps.py` | Generate terrain spatial-validation figures |
-| `04_process_landcover.py` | Decode and aggregate CLC 2012/2018 classes |
-| `05_validate_landcover.py` | Generate land-cover comparison/change figures |
-| `06_prepare_ndvi_aoi.py` | Prepare AppEEARS area-of-interest geometry |
-| `07_process_ndvi.py` | Process MODIS NDVI and pixel reliability into lag-one cell-month features |
-| `08_diagnose_ndvi_quality.py` | Inspect quality flags behind completely missing NDVI cell-months |
-| `09_merge_ndvi_batches.py` | Safely merge three processed NDVI batches after verifying schemas, spatial grids, continuous source months, and lag-one dates |
-| `10_validate_ndvi_maps.py` | Generate vegetation-seasonality, interannual-change, and missingness maps |
-| `11_validate_wp4_integration.py` | Check schemas, coverage, dates, ranges, duplicate keys, and cell alignment |
+| `01_download_dem.py` | Plan/download buffered Copernicus DEM blocks for the WP2 mask |
+| `02_process_terrain.py` | Calculate terrain metrics using per-block checkpoints and merge them |
+| `03_validate_terrain_maps.py` | Generate spatial terrain diagnostic figures |
+| `04_process_landcover.py` | Decode and aggregate CORINE 2012/2018 land-cover classes |
+| `05_validate_landcover.py` | Generate land-cover spatial and change diagnostics |
+| `06_prepare_ndvi_aoi.py` | Create the main AppEEARS AOI |
+| `07_process_ndvi.py` | Convert monthly MODIS NDVI/reliability rasters to lag-one features |
+| `08_diagnose_ndvi_quality.py` | Inspect quality codes for missing MODIS observations |
+| `09_merge_ndvi_batches.py` | Merge the three original monthly NDVI batches after validation |
+| `10_validate_ndvi_maps.py` | Generate NDVI spatial/temporal diagnostics |
+| `11_validate_wp4_integration.py` | Validate final WP4 tables against the current WP2 mask |
+| `create_ndvi_supplement_aoi.py` | Build buffered supplemental AOI for cells 11627 and 11628 |
 
-## Reproducing the outputs
+## Reproducing and validating outputs
 
-Run from the repository root in the project's Python environment (previous development used the `DSC180A` Conda environment). The processing scripts require the geospatial and data-analysis libraries used by the project, including `numpy`, `pandas`, `geopandas`, `rasterio`, `pyarrow`, and `matplotlib`; DEM download and land-cover scripts may have additional dependencies. See the scripts for source-specific inputs and configuration.
+All commands below assume the repository root as the working directory and the required source rasters are already available. The WP2 grid (`wp2/outputs/cells.gpkg` and `cells.parquet`) must be generated for the **current 6,555-cell mask** before running WP4 processing.
 
-The WP2 grid (`wp2/outputs/cells.gpkg`, containing `cell_id` and `in_mask`) must exist before running WP4 aggregation. Large raw DEM, CORINE, and MODIS files must be placed under the expected directories first. The AppEEARS data are downloaded separately and are not reproduced automatically by merely running the scripts.
+### Terrain
 
-After raw inputs are prepared, run the relevant pipelines and then validate:
+Plan DEM blocks with the current grid and fetch any missing files only if the OpenTopography API key is configured:
 
 ```powershell
-conda activate DSC180A
-python -u WP4/scripts/02_process_terrain.py
-python -u WP4/scripts/03_validate_terrain_maps.py
-python -u WP4/scripts/04_process_landcover.py
-python -u WP4/scripts/05_validate_landcover.py
+python -u WP4/scripts/01_download_dem.py --plan
+# Optional when blocks are missing and OPENTOPO_API_KEY is set:
+# python -u WP4/scripts/01_download_dem.py
+
+python -u WP4/scripts/02_process_terrain.py `
+  --checkpoints WP4/outputs/terrain_checkpoints_6555 `
+  --out WP4/outputs/terrain_cell_6555.parquet
 ```
 
-### MODIS batch processing and reproducible merging
+**Do not reuse checkpoints created for the old 6,225-cell mask.** A fresh checkpoint directory is required because existing per-block files are skipped by default. Validate the new result before replacing the DVC-managed final file.
 
-The raw AppEEARS download directories must contain the corresponding monthly NDVI and `pixel_reliability` GeoTIFFs. Run the following commands from the **repository root** in PowerShell:
+### CORINE land cover
+
+```powershell
+python -u WP4/scripts/04_process_landcover.py
+```
+
+The current land-cover script writes to `outputs/landcover_cell.parquet` by default. If testing a rebuild, make a backup or change the output path in the script before running; it does not necessarily support an `--out` option.
+
+### MODIS NDVI, supplemental processing and merge
+
+The original source rasters must contain both monthly NDVI and `pixel_reliability` files. **Process each original batch separately:** scanning the whole `modis/` directory after adding `supplement_6555/` would find duplicate monthly layers.
 
 ```powershell
 python -u WP4/scripts/07_process_ndvi.py `
   --input-dir WP4/data/raw/modis/2016_2019 `
   --start 2016-04 --end 2019-12 `
-  --output WP4/outputs/veg_2016_2019.parquet
+  --output WP4/outputs/veg_2016_2019_6555.parquet
 
 python -u WP4/scripts/07_process_ndvi.py `
   --input-dir WP4/data/raw/modis/2020_2023 `
   --start 2020-01 --end 2023-12 `
-  --output WP4/outputs/veg_2020_2023.parquet
+  --output WP4/outputs/veg_2020_2023_6555.parquet
 
 python -u WP4/scripts/07_process_ndvi.py `
   --input-dir WP4/data/raw/modis/2024_2026 `
   --start 2024-01 --end 2026-07 `
-  --output WP4/outputs/veg_2024_2026.parquet
+  --output WP4/outputs/veg_2024_2026_6555.parquet
 ```
 
-Once the three intermediate Parquet files are present, run **Step 09 — `09_merge_ndvi_batches.py`**:
+The existing `09_merge_ndvi_batches.py` is not yet compatible with this expanded grid (see compatibility note below). To create a **temporary expanded baseline**, concatenate these three non-overlapping batches and check their keys and monthly coverage before writing:
 
-```powershell
-# On a fresh run, when veg_cell_month.parquet does not yet exist
-python -u WP4/scripts/09_merge_ndvi_batches.py
+```python
+import pandas as pd
+from pathlib import Path
 
-# Use only when deliberately rebuilding an existing final dataset
-python -u WP4/scripts/09_merge_ndvi_batches.py --overwrite
+out = Path("WP4/outputs")
+parts = [pd.read_parquet(out / f"veg_{period}_6555.parquet")
+         for period in ("2016_2019", "2020_2023", "2024_2026")]
+base = pd.concat(parts, ignore_index=True)
+assert len(base) == 6555 * 124
+assert not base.duplicated(["cell_id", "year", "month"]).any()
+assert base.groupby(["source_year", "source_month"]).size().eq(6555).all()
+assert len(base.groupby(["source_year", "source_month"])) == 124
+base.to_parquet(out / "veg_cell_month_6555.parquet", index=False)
 ```
 
-The merge script checks each batch's expected date range (45, 48, and 31 source months), identical 6,225-cell coverage, required fields, duplicate keys, valid NDVI/pixel counts, and exact one-month lag. It then validates the **124-month, 771,900-row** combined dataset before writing `outputs/veg_cell_month.parquet`. An existing output is **not** overwritten unless `--overwrite` is explicitly supplied. On a successful validated rebuild, replacement uses an intermediate file and an atomic rename on the same filesystem; invalid inputs do not replace the existing final dataset.
+This is a staged rebuilding step, not a replacement for the final integration validation. Preserve the current DVC-managed output until the supplemental replacement and full validation pass.
 
-**If intermediate batch Parquet files were removed during cleanup:** this is expected in the current lightweight `outputs/` layout. The existing verified `veg_cell_month.parquet` remains usable. `09_merge_ndvi_batches.py` requires all three batch files and will report which inputs are missing. Regenerate them with the three `07_process_ndvi.py` commands above **only when a rebuild is needed**, using the locally retained raw AppEEARS GeoTIFFs. There is no need to overwrite a verified final dataset simply to test the merge step.
+**Keep supplemental downloads separate from the original batches.** The NDVI processor checks for duplicate layers for any source month and must not be pointed at a directory that contains both the original and supplemental monthly rasters together. Restrict the processing grid to the two supplemental cells before processing their smaller AOI:
 
-After the final NDVI data are available, run **Step 10 (spatial validation)** and **Step 11 (final integration validation)**:
+```python
+import geopandas as gpd
+
+cells = gpd.read_file("wp2/outputs/cells.gpkg")
+target = cells[cells.cell_id.isin([11627, 11628])].copy()
+assert len(target) == 2
+target.to_file("WP4/data/reference/ndvi_supplement_cells.gpkg",
+               layer="cells", driver="GPKG")
+```
 
 ```powershell
-python -u WP4/scripts/10_validate_ndvi_maps.py
+python -u WP4/scripts/07_process_ndvi.py `
+  --input-dir WP4/data/raw/modis/supplement_6555 `
+  --cells WP4/data/reference/ndvi_supplement_cells.gpkg `
+  --output WP4/outputs/veg_supplement_6555.parquet
+```
+
+Merge only matching target keys (`cell_id`, `year`, `month`) from the two supplemental cells, and only where the baseline has `n_total_pixels == 0`. Copy the **entire supplemental feature record**, including NDVI, QA fractions, pixel counts, and coverage diagnostics; do not replace only `ndvi_lag1`. Check that the original rows for every other key are identical before moving the merged output to `outputs/veg_cell_month.parquet`.
+
+> **Compatibility note:** `09_merge_ndvi_batches.py` in the existing repository still hardcodes `EXPECTED_CELLS = 6225`. Do not run it against expanded 6,555-cell batches without first updating its expected grid count and validating its assumptions. It also merges only the original three batches; the supplemental AOI data need a separate key-based replacement step. Do not use its `--overwrite` option on the verified final output as-is.
+
+### Final integration validation
+
+```powershell
 python -u WP4/scripts/11_validate_wp4_integration.py
 ```
 
-### Reproducibility and data storage
+For a staged run before replacing the formal outputs:
 
-Intermediate batches (`veg_2016_2019.parquet`, `veg_2020_2023.parquet`, and `veg_2024_2026.parquet`) are **rebuildable products**, not required permanent deliverables. The three **final** Parquet datasets are committed to Git; the raw GeoTIFFs, temporary checkpoints, and intermediate batches stay local or are transferred separately for full reproducibility. Preserve `data/reference/ndvi_iberia_aoi.geojson`, the code, and validation figures in version control. The `.gitignore` explicitly exempts `outputs/terrain_cell.parquet`, `outputs/landcover_cell.parquet`, and `outputs/veg_cell_month.parquet` from the general Parquet ignore rule.
+```powershell
+python -u WP4/scripts/11_validate_wp4_integration.py `
+  --terrain WP4/outputs/terrain_cell_6555.parquet `
+  --landcover WP4/outputs/landcover_cell.parquet `
+  --veg WP4/outputs/veg_cell_month_6555_merged.parquet
+```
 
-## Final validation results
+`11_validate_wp4_integration.py` reads the current WP2 in-mask IDs and checks row counts, unique keys, epoch and month coverage, lag-one dates, valid numeric ranges, defined and undefined aspect values, missing NDVI against valid pixel counts, and cross-table `cell_id` alignment. Some coastal cells have `NaN` aspect by design when no directional pixels exist.
 
-| Check | Result |
+## Final validation results (6,555-cell mask)
+
+| Check | Verified result |
 |---|---|
-| Terrain | 6,225 rows; unique, non-null `cell_id`; feature-range and coverage checks passed |
-| Land cover | 12,450 rows; exactly 6,225 cells for each of 2012 and 2018; shares sum to 1 (±0.001) |
-| NDVI | 771,900 rows; all 124 source months present; 6,225 cells per source month; target date = source month + 1 |
-| NDVI missingness | 60 / 771,900 cell-months (**0.0078%**) |
-| NDVI duplicate keys | 0 for both source-month and target-month cell keys |
-| Cross-dataset spatial keys | All three datasets contain the identical set of 6,225 `cell_id` values |
-| Overall integration report | **0 failing checks, 0 warnings** |
+| WP2 grid | 11,726 total cells; 6,555 in-mask |
+| Terrain | 6,555 rows; valid elevation/slope; 4 undefined aspect cells with `n_aspect_pixels = 0` |
+| Land cover | 13,110 rows; 6,555 cells per epoch in 2012 and 2018; shares sum to 1 |
+| NDVI | 812,820 rows; 124 source months, 6,555 cells/month; one-month lag verified |
+| NDVI supplemental repair | 248 zero-coverage records replaced for two cells; other 812,572 records unchanged |
+| NDVI missing | 2,976 / 812,820 (approximately **0.366%**) |
+| NDVI zero source-pixel coverage | 0 records after supplemental merge |
+| Duplicate keys and cross-table IDs | No duplicate keys; identical current WP2 in-mask IDs across all three tables |
+| Full integration | **0 failures, 0 warnings** |
 
-Diagnostics on the 2016–2019 and 2020–2023 batches found that the completely missing NDVI cell-months were concentrated in high-elevation locations and had no pixels passing the reliability filter. Snow/ice and cloud flags explained those excluded observations. The 2024–2026 batch had 14 missing cell-months; its individual quality-code breakdown was not separately established in the recorded validation.
-
-The NDVI map suite includes April/August 2022 snapshots, August-minus-April 2022 seasonal change, August 2022 minus August 2020 change, and full-period missingness frequency. The terrain and land-cover map suites are also kept under `outputs/`.
+These figures are from the expanded-mask processing and final integration validation. Spatial diagnostic maps originally generated for the old mask may need regeneration to display the 330 additional cells accurately.
 
 ## Caveats for downstream modeling
 
-1. **CLC epoch selection:** Do not blindly forward-fill the 2018 map to months before 2018 or use a future epoch without a defensible temporal policy. Agree on a mapping with the modeling team.
-2. **NDVI availability and missing values:** The 60 missing grid-month NDVI observations remain `NaN` rather than being filled with zero. Decide on imputation or model-specific missing-data handling downstream.
-3. **Pixel-center coverage diagnostic:** `spatial_coverage_approx` estimates coverage from assigned pixel centers and approximate pixel area, **not** exact polygon intersection. It exceeds 1 in 381,176 records; values above 1 do not imply physically greater than 100% coverage. Do not interpret this raw column as a bounded fractional predictor.
-4. **Coastal and water cells:** Cell masks, raster-valid pixels, and land area are not identical. Investigate coastal or water-dominated cells if the model is sensitive to those areas.
-5. **Different spatial and temporal scales:** DEM is static, CLC has two epochs, and NDVI is monthly. Preserve correct join cardinalities and feature-time semantics.
-6. **Data distribution:** The three final output Parquet files are version-controlled in Git. Raw GeoTIFFs and intermediate batch Parquet files are excluded; arrange separate access only if a downstream team needs to rerun processing from raw data.
+1. **Coastal and border cells:** WP2 deliberately includes cells touching any Spanish or Portuguese land, even when `land_frac` is very small. Retain `land_frac` and `edge_type` in model development and review sensitivity to mixed land/sea cells.
+2. **Terrain aspect:** The four undefined aspect values are not equivalent to zero southern-facing slope or zero aspect concentration. Impute or handle them with an explicit model-specific policy.
+3. **NDVI missingness:** The remaining 2,976 missing NDVI records have no valid retained pixels and remain `NaN`. Do not silently convert them to zero. Reliability varies substantially among newly included coastal cells.
+4. **Pixel-center method:** `spatial_coverage_approx` is a pixel-area/pixel-center approximation, not exact polygon intersection. It may exceed 1 and should not be treated as a physical fraction capped at 100%.
+5. **Mixed land and sea:** MODIS pixel summaries use raster pixel centers and the full grid-cell geometry, not a precise ES/PT-land-only clip. High water fractions can make environmental summaries difficult to interpret.
+6. **Temporal mapping and leakage:** DEM is static; CORINE has 2012 and 2018 epochs; NDVI is monthly with a one-month lag. Choose land-cover epochs and forecast times carefully to prevent future-information leakage.
+7. **DVC and reproducibility:** DVC provides versioned final tables, but rebuilding from raw rasters requires the original external DEM, CORINE and AppEEARS downloads. The supplemental AOI file and its processing steps should be kept alongside the main workflow.
 
-## Suggested join patterns
+## Suggested downstream joins
 
-- Terrain: `monthly_df.merge(terrain, on="cell_id", how="left", validate="many_to_one")`
-- NDVI: `monthly_df.merge(vegetation, on=["cell_id", "year", "month"], how="left", validate="one_to_one")` **only when** `monthly_df` itself has unique cell-month keys; otherwise choose the cardinality appropriate to the downstream label table.
-- Land cover: first select or map an appropriate CLC epoch; then merge on `cell_id` with `validate="many_to_one"`. Do **not** merge both epochs using `cell_id` alone: that would duplicate each model record.
+- **Terrain:** `monthly.merge(terrain, on="cell_id", how="left", validate="many_to_one")`.
+- **NDVI:** `monthly.merge(vegetation, on=["cell_id", "year", "month"], how="left", validate="one_to_one")`, when `monthly` has unique cell-month keys.
+- **Land cover:** select an epoch or create a time-aware mapping first, then join with a cardinality check. **Do not join both epochs on `cell_id` alone**, as that duplicates model records.
 
 ## Status
 
-The three core WP4 outputs are processed, spatially reviewed, and structurally validated. The dependency order for steps 07–11 is: process monthly NDVI batches → diagnose quality → merge batches → generate NDVI maps → validate all WP4 datasets. The final Parquet feature tables, code, and validation figures are suitable for repository handoff. Downstream modelers still need to agree on land-cover epoch and forecasting-date conventions.
+All three expanded-grid WP4 deliverables have been processed and passed final structural/integration validation against WP2. They are ready for the downstream modeling team once the corresponding DVC objects have been uploaded to the shared GCS remote and the pointer files have been committed. Remaining decisions about model-specific missing-data treatment, CORINE temporal mapping, and the interpretation of mixed land/sea cells belong to downstream analysis.

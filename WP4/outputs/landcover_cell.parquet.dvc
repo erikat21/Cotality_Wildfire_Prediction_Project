@@ -1,5 +1,5 @@
 outs:
-- md5: d5337dac15dc7b31aac424af8d93f78e
-  size: 474862
+- md5: e33667fb8d5b21e143234c8d268073a6
+  size: 503961
   hash: md5
   path: landcover_cell.parquet
