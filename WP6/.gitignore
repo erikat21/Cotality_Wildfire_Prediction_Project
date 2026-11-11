@@ -1,0 +1,4 @@
+outputs/*.parquet
+outputs/*.done
+outputs/*.txt
+__pycache__/
