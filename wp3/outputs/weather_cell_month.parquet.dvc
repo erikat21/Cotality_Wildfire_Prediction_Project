@@ -1,0 +1,5 @@
+outs:
+- md5: 84e58e6d2527edbd66de798cac7b88c5
+  size: 3998248
+  hash: md5
+  path: weather_cell_month.parquet
