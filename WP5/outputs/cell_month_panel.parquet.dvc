@@ -1,0 +1,5 @@
+outs:
+- md5: c249f9633050ed0226d617506a701aa9
+  size: 20799748
+  hash: md5
+  path: cell_month_panel.parquet
