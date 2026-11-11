@@ -7,3 +7,7 @@ wp2/data/boundaries
 *.shx
 wp2/outputs/*
 *.json
+
+# Python cache files
+__pycache__/
+*.py[cod]
