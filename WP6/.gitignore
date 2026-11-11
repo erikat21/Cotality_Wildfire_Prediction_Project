@@ -1,4 +1,16 @@
+# Generated Parquet files
 outputs/*.parquet
+
+# Locked test markers
 outputs/*.done
 outputs/*.txt
+
+# Allow WP6 statistical result tables
+!outputs/*.csv
+
+# Local experiment backups
+archive/
+
+# Python cache
 __pycache__/
+*.py[cod]
