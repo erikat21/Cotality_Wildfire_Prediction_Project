@@ -1,7 +1,14 @@
-# downloaded ERA5-Land files and built outputs are not committed
+# Downloaded ERA5-Land files are not committed
 data/
-outputs/
+
+# Ignore generated outputs, but allow DVC metadata
+outputs/*
+!outputs/*.dvc
+
+# Raw and generated data files
 *.nc
 *.grib
 *.idx
 *.zip
+*.csv
+*.parquet
