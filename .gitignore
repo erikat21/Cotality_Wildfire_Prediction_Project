@@ -11,3 +11,5 @@ wp2/outputs/*
 # Python cache files
 __pycache__/
 *.py[cod]
+
+archive/

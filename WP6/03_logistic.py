@@ -86,17 +86,45 @@ def logit(features):
         ("cat", OneHotEncoder(handle_unknown="ignore", drop="first"), cats),
         ("num", StandardScaler(), features),   # fitted on the training years of each fold only
     ], sparse_threshold=0)
-    return Pipeline([("pre", pre), ("lr", LogisticRegression(C=1.0, max_iter=1000))])
+    # FIX P0-2: Tighten solver tolerance after sensitivity checks showed
+    # substantially different coefficients under the default tolerance.
+    # Keep C and the solver unchanged for a controlled comparison.
+    return Pipeline([
+        ("pre", pre),
+        ("lr", LogisticRegression(C=1.0, max_iter=3000, tol=1e-8)),
+    ])
 
 
 def fit_predict(model, train, test, y, feats):
     if model == "season":
         return rate_season(train, test, y)
+
     if model == "season+place":
         return rate_season_place(train, test, y)
+
     f = feats if model == "logit_full" else []
-    m = logit(f).fit(train[["month", "region"] + f], train[y])
-    return m.predict_proba(test[["month", "region"] + f])[:, 1]
+
+    m = logit(f).fit(
+        train[["month", "region"] + f],
+        train[y]
+    )
+
+    # FIX P1-2: Check logistic regression convergence.
+    # Reaching max_iter may indicate that the solver has not converged.
+    lr = m.named_steps["lr"]
+    n_iter = int(lr.n_iter_[0])
+
+    if n_iter >= lr.max_iter:
+        print(
+            f"WARNING: {model} for {y} reached "
+            f"max_iter={lr.max_iter}. "
+            "Check convergence before interpreting coefficients."
+        )
+
+    return m.predict_proba(
+        test[["month", "region"] + f]
+    )[:, 1]
+
 
 
 def loyo(df, y, feats, models=MODELS):
@@ -149,25 +177,68 @@ def bootstrap(df, y, pred, models, rng, n=N_BOOT):
 
 
 def summarise_boot(df, y, pred, label, rng):
+    """Summarise bootstrap scores and paired model improvements."""
+
     bs = bootstrap(df, y, pred, MODELS, rng)
     point = {m: scores(df[y], pred[m]) for m in MODELS}
+
     rows = []
+
+    # Original: bootstrap confidence intervals for each model.
     for m in MODELS:
         b = bs[bs.model == m]
-        rows.append({"label": label, "model": m,
-                     "auc": point[m]["auc"], "auc_lo": b.auc.quantile(.025), "auc_hi": b.auc.quantile(.975),
-                     "ap": point[m]["ap"], "ap_lo": b.ap.quantile(.025), "ap_hi": b.ap.quantile(.975)})
-    # logit_full minus the best non-feature model (chosen on the point AP), same draws
-    best = max(["season", "season+place", "logit_base"], key=lambda m: point[m]["ap"])
-    w = bs.pivot(index="draw", columns="model", values=["auc", "ap"])
-    for metric in ["auc", "ap"]:
-        d = w[metric]["logit_full"] - w[metric][best]
-        rows.append({"label": label, "model": f"logit_full minus {best}",
-                     metric: point["logit_full"][metric] - point[best][metric],
-                     f"{metric}_lo": d.quantile(.025), f"{metric}_hi": d.quantile(.975),
-                     "share_of_draws_better": (d > 0).mean()})
-    out = pd.DataFrame(rows)
-    return out.groupby(["label", "model"], sort=False).first().reset_index()
+
+        rows.append({
+            "label": label,
+            "model": m,
+            "auc": point[m]["auc"],
+            "auc_lo": b.auc.quantile(.025),
+            "auc_hi": b.auc.quantile(.975),
+            "ap": point[m]["ap"],
+            "ap_lo": b.ap.quantile(.025),
+            "ap_hi": b.ap.quantile(.975),
+            "auc_share_of_draws_better": np.nan,
+            "ap_share_of_draws_better": np.nan,
+        })
+
+    # Original: choose the strongest baseline using point-estimate AP.
+    best = max(
+        ["season", "season+place", "logit_base"],
+        key=lambda m: point[m]["ap"]
+    )
+
+    w = bs.pivot(
+        index="draw",
+        columns="model",
+        values=["auc", "ap"]
+    )
+
+    # FIX P1-1:
+    # Calculate paired bootstrap improvements separately for AUC and AP.
+    # Previously, groupby().first() could report the AUC win rate
+    # as though it were also the AP win rate.
+    auc_diff = w["auc"]["logit_full"] - w["auc"][best]
+    ap_diff = w["ap"]["logit_full"] - w["ap"][best]
+
+    rows.append({
+        "label": label,
+        "model": f"logit_full minus {best}",
+
+        "auc": point["logit_full"]["auc"] - point[best]["auc"],
+        "auc_lo": auc_diff.quantile(.025),
+        "auc_hi": auc_diff.quantile(.975),
+
+        "ap": point["logit_full"]["ap"] - point[best]["ap"],
+        "ap_lo": ap_diff.quantile(.025),
+        "ap_hi": ap_diff.quantile(.975),
+
+        # FIX P1-1: Each metric gets its own win probability.
+        "auc_share_of_draws_better": (auc_diff > 0).mean(),
+        "ap_share_of_draws_better": (ap_diff > 0).mean(),
+    })
+
+    return pd.DataFrame(rows)
+
 
 
 # ---------- main ----------
@@ -237,10 +308,31 @@ def main():
 
     # 4. Coefficients: full fit + range over the leave-one-year-out fits
     def coefs(data):
-        m = logit(feats).fit(data[["month", "region"] + feats], data[y])
+        # FIX P1-3: Diagnose convergence for the coefficient-analysis fits.
+        m = logit(feats).fit(
+            data[["month", "region"] + feats],
+            data[y]
+        )
+
+        lr = m.named_steps["lr"]
+        n_iter = int(lr.n_iter_[0])
+
+        print(
+            f"Coefficient fit: {len(data):,} rows, "
+            f"iterations={n_iter}/{lr.max_iter}"
+        )
+
+        if n_iter >= lr.max_iter:
+            print(
+                "WARNING: Coefficient fit reached max_iter. "
+                "Interpret odds ratios with caution."
+            )
+
         names = m.named_steps["pre"].get_feature_names_out()
-        c = pd.Series(m.named_steps["lr"].coef_[0], index=names)
+        c = pd.Series(lr.coef_[0], index=names)
+
         return c[[f"num__{f}" for f in feats]].set_axis(feats)
+
     full = coefs(df)
     folds = pd.DataFrame({yr: coefs(df[df.year != yr]) for yr in OPEN_YEARS})
     coef = pd.DataFrame({"feature": feats, "coef_per_sd": full.values,
