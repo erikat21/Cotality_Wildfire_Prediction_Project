@@ -65,7 +65,7 @@ box WP2 cut its cells from, so each ERA5-Land point lands on one cell centre.
   month's first 00:00 stamp) so August 2026 closes out from 1 Sep 2026; step 2 moves
   every stamp back one day before summing.
 
-## Downloading in blocks (brief slide 17)
+## Downloading in blocks 
 Scoring years **2024, 2025, 2026** are written to `data/era5_locked/` and are only read
 when you pass `--locked` to step 2 — keep them out of every tuning run. 2015 is
 downloaded (antecedent weather) into the open folder; it is not part of the panel so
@@ -76,10 +76,9 @@ step 2 skips it when aggregating.
     col = round((lon + 9.8) / 0.1)       # col 0 = westernmost longitude
     cell_id = row * 143 + col
 
-## Choices made (each is easy to change)
 - **Lite tier.** Daily statistics for temperature + hourly 00:00 for rain. `vpdmax` is
   the lite approximation `es(tmax) − es(tdmean)` (Tetens), ~0.13 kPa under the hourly
-  maximum but same ranking. **Never mix lite and full VPD in one fitted model.**
+  maximum but same ranking. 
 - **Units:** tmax, tdmean in °C (ERA5 Kelvin − 273.15); vpdmax in kPa; ppt in mm.
 - **Panel window:** May 2016 → Aug 2026. 2015 is kept on disk for antecedent features
   but is not written into `weather_cell_month`.
@@ -89,11 +88,8 @@ step 2 skips it when aggregating.
   ppt = sum of daily totals. `weather_cell_month_check.csv` flags any month with cells
   short of a full set of days.
 
-## Outputs (outputs/)
+## Outputs
 | file | one row per | key columns |
 |---|---|---|
 | weather_cell_month.parquet | cell × month | cell_id, year, month, tmax, vpdmax, tdmean, ppt (+ country, nuts2) |
 | weather_cell_month_check.csv | year-month | cells, short_months, value ranges, ppt_zero_cells |
-
-## Not in WP3 (scope)
-Full-tier hourly VPD, wind, NDVI/DEM/CORINE (those are WP4), and the panel join (WP5).

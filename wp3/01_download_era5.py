@@ -1,7 +1,6 @@
 """
 WP3 step 1: download ERA5-Land over the vn0 box, one file per variable per month.
 
-Three variables, two datasets (see the vn0 brief, "The ERA5-Land download"):
     tmax   derived-era5-land-daily-statistics  2m_temperature          daily_maximum
     tdmean derived-era5-land-daily-statistics  2m_dewpoint_temperature daily_mean
     tp     reanalysis-era5-land                total_precipitation     time 00:00 only
@@ -10,27 +9,13 @@ The grid is the SAME box WP2 built its cells on, so every ERA5-Land point lands 
 exactly one cell centre:
     area = [N 44.0, W -9.8, S 35.9, E 4.4]   (82 lats x 143 lons = 11,726 points)
 
-Lite tier (start here): daily statistics for temperature, hourly 00:00 for rain.
-Files come back as NetCDF (.nc): the derived daily-statistics dataset has no GRIB
-option, and the monthly requests are small enough that we ask rain for NetCDF too so
-step 2 reads everything the same way.
-
-Downloading in blocks (brief slide "Downloading in blocks"). Test/final years are
+Test/final years are
 written to a SEPARATE locked folder so no analysis script reads them by accident:
     pilot    2016-2019   -> data/era5/
     training 2020-2023   -> data/era5/
     margins15 2015       -> data/era5/        (antecedent weather, used by training)
     test     2024-2025   -> data/era5_locked/
     final    2026 Jan-Aug -> data/era5_locked/
-
-Precipitation needs one extra timestamp: the 00:00 value on day D+1 is day D's total,
-so every month is downloaded with the FIRST day of the next month appended. That makes
-each monthly file self-contained for step 2's day-shift, and means we fetch 2026 through
-September 1 to close out August.
-
-Setup:
-    pip install "cdsapi>=0.7"
-    A Copernicus (CDS) account + ~/.cdsapirc holding your url and key. See README.
 
 Run (resumable; existing files are skipped):
     python 01_download_era5.py --block pilot
@@ -52,9 +37,6 @@ LOCKED_DIR = HERE / "data" / "era5_locked"
 
 # vn0 box, in CDS order [North, West, South, East]
 AREA = [44.0, -9.8, 35.9, 4.4]
-# derived-era5-land-daily-statistics returns NetCDF (no data_format key, per the brief);
-# we ask reanalysis-era5-land for NetCDF too so every file reads the same way. Monthly
-# requests are small (~0.5 MB), so GRIB's size advantage does not matter here.
 NETCDF = "netcdf"
 
 # Which years belong to each download block, and whether they are locked.
@@ -71,7 +53,7 @@ VARS = ("tmax", "tdmean", "tp")
 
 
 def months_for(var: str, year: int) -> list[int]:
-    """The panel is May 2016 to Aug 2026; 2015 is antecedent weather (full year).
+    """The panel is May 2016 to Aug 2026
 
     tp is fetched one month further than the panel because step 2 shifts the 00:00
     stamp back a day, so August 2026 needs September 2026's first day.
@@ -88,7 +70,6 @@ def out_path(var: str, year: int, month: int) -> Path:
 
 
 def temperature_request(variable: str, statistic: str, year: int, month: int) -> dict:
-    """derived-era5-land-daily-statistics. Note: NO data_format key (brief)."""
     days = [f"{d:02d}" for d in range(1, calendar.monthrange(year, month)[1] + 1)]
     return {
         "variable": [variable],

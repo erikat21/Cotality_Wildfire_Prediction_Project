@@ -1,19 +1,17 @@
 """
 WP3 step 2: turn the downloaded daily ERA5-Land files into `weather_cell_month`.
 
-One row per (cell_id, year, month) with the four vn0 weather features (brief slide 14):
+One row per (cell_id, year, month) with the four vn0 weather features:
     tmax    mean of daily max 2m temperature          (deg C)
     tdmean  mean of daily mean 2m dewpoint             (deg C)
     vpdmax  mean of daily max VPD                      (kPa, lite-tier approx)
     ppt     sum of daily precipitation totals          (mm)
 
-Lite-tier VPD: each day's max VPD is approximated from that day's max temperature and
-mean dewpoint, VPD = es(tmax) - es(tdmean), with the Tetens saturation formula. The
-brief notes this sits ~0.13 kPa under the true hourly maximum but keeps the same
-ranking, so never mix it with full-tier VPD in one fitted model.
+Each day's max VPD is approximated from that day's max temperature and
+mean dewpoint, VPD = es(tmax) - es(tdmean). 
 
 Every ERA5-Land point sits on exactly one WP2 cell centre, so cell_id comes straight
-from the point's lat/lon with the shared rule (never change it):
+from the point's lat/lon with the shared rule:
     row = round((44.0 - lat) / 0.1)      # row 0 = northernmost
     col = round((lon + 9.8) / 0.1)
     cell_id = row * 143 + col
@@ -48,8 +46,8 @@ HERE = Path(__file__).resolve().parent
 OPEN_DIR = HERE / "data" / "era5"
 LOCKED_DIR = HERE / "data" / "era5_locked"
 OUT = HERE / "outputs"
-# WP2's cells table, copied into WP3 so this package is self-contained (same file that
-# `wp2/01_build_cells.py` produces -- the cell_id rule below reproduces its mapping).
+# WP2's cells table, copied into WP3 
+
 CELLS = HERE / "data" / "cells.parquet"
 
 N_COLS = 143
