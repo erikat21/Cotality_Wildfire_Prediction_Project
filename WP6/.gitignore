@@ -1,15 +1,16 @@
-# Generated Parquet files
+# Ignore intermediate Parquet files
 outputs/*.parquet
+outputs/**/*.parquet
 
-# Locked test markers
+# Ignore test markers
 outputs/*.done
 outputs/*.txt
 
-# Allow WP6 statistical result tables
+# Track WP6 CSV results
+!outputs/
+!outputs/**/
 !outputs/*.csv
-
-# Local experiment backups
-archive/
+!outputs/**/*.csv
 
 # Python cache
 __pycache__/
