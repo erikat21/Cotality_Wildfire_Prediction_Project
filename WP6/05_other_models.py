@@ -48,12 +48,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, brier_score_loss, log_loss, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler
+from wp6_common import load_panel
 
 HERE = Path(__file__).resolve().parent
+LABEL = "y_S30_any"
 PANEL = HERE.parent / "WP5" / "outputs" / "cell_month_panel.parquet"
-OUT = HERE / "outputs"
+OUT = HERE / "outputs" / "other_models" / LABEL
 OPEN_YEARS = list(range(2016, 2024))
-LABEL = "fire"           # = WP2 y_S30_any
 EPS = 1e-6
 
 FEATURES = [
@@ -75,14 +76,19 @@ COLORS = {
 # ---------- data ----------
 
 def load():
-    df = pd.read_parquet(PANEL)
-    df["ppt_log"] = np.log1p(pd.to_numeric(df["ppt"], errors="coerce"))
-    df["region"] = df["nuts2"].astype(str)
-    df["ym"] = df["year"] * 100 + df["month"]
-    df = df[df["year"].isin(OPEN_YEARS)].reset_index(drop=True)
-    missing = [c for c in FEATURES + [LABEL, "region", "month", "cell_id"] if c not in df.columns]
+    df = load_panel().reset_index(drop=True)
+
+    missing = [
+        c for c in FEATURES + [LABEL, "region", "month", "cell_id"]
+        if c not in df.columns
+    ]
+
     if missing:
-        raise SystemExit(f"panel missing columns: {missing}")
+        raise ValueError(f"Missing columns: {missing}")
+
+    if df[FEATURES].isna().any().any():
+        raise ValueError("Missing feature values")
+
     return df
 
 
@@ -98,12 +104,23 @@ def logit_pipe():
 
 
 def tree_pipe(estimator):
-    # trees: region ordinal-encoded, month + features passed through, no scaling
     pre = ColumnTransformer([
-        ("reg", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1), ["region"]),
-        ("pass", "passthrough", ["month"] + FEATURES),
+        (
+            "reg",
+            OneHotEncoder(handle_unknown="ignore"),
+            ["region"]
+        ),
+        (
+            "pass",
+            "passthrough",
+            ["month"] + FEATURES
+        ),
+    ], sparse_threshold=0)
+
+    return Pipeline([
+        ("pre", pre),
+        ("clf", estimator)
     ])
-    return Pipeline([("pre", pre), ("clf", estimator)])
 
 
 def make_model(name):
@@ -145,11 +162,16 @@ def scores(y, p):
 # ---------- main ----------
 
 def main():
-    OUT.mkdir(exist_ok=True)
+    OUT.mkdir(parents=True, exist_ok=True)
     df = load()
     n_pos = int(df[LABEL].sum())
-    print(f"{len(df):,} cell-months, {df.region.nunique()} regions, "
-          f"{n_pos:,} positives ({df[LABEL].mean():.3%}), label={LABEL} (= y_S30_any)")
+    print(
+        f"{len(df):,} cell-months, "
+        f"{df.region.nunique()} regions, "
+        f"{n_pos:,} positives "
+        f"({df[LABEL].mean():.3%}), "
+        f"label={LABEL}"
+    )
     print(f"models: {MODELS}\n")
 
     preds, rows = {}, []
@@ -158,9 +180,33 @@ def main():
         p = loyo(df, LABEL, [m])[m]
         preds[m] = p
         s = scores(df[LABEL], p)
-        rows.append({"model": m, "kind": "reference" if m in REFERENCE else "new", **s})
-        print(f"  {m:14s}  AUC {s['auc']:.4f}  AP {s['ap']:.4f}  "
-              f"Brier {s['brier']:.5f}  logloss {s['logloss']:.4f}  ({time.time()-t0:.0f}s)")
+        rows.append({
+            "model": m,
+            "kind": "reference" if m in REFERENCE else "new",
+            **s
+        })
+
+        print(
+            f"  {m:14s}  "
+            f"AUC {s['auc']:.4f}  "
+            f"AP {s['ap']:.4f}  "
+            f"Brier {s['brier']:.5f}  "
+            f"logloss {s['logloss']:.4f}  "
+            f"({time.time()-t0:.0f}s)"
+        )
+
+    # Save out-of-fold predictions for bootstrap analysis
+    oof = df[["cell_id", "year", "month", LABEL]].copy()
+
+    for m in MODELS:
+        oof[m] = preds[m].to_numpy()
+
+    oof.to_parquet(
+        OUT / "other_models_oof.parquet",
+        index=False
+    )
+
+    print("Saved out-of-fold predictions.")
 
     cv = pd.DataFrame(rows)
     cv.to_csv(OUT / "other_models_cv.csv", index=False)
