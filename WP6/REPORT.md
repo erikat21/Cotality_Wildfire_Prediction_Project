@@ -91,6 +91,42 @@ For the paired year-month bootstrap, **100% of 300 draws** showed improvement in
 
 In particular, the S30 AP interval includes zero: the full model has a higher AP point estimate, but the 95% paired interval does **not** establish a clear AP improvement for that label.
 
+### Flexible models: random forest and gradient-boosted trees
+
+To test whether a more flexible learner fits the panel better than logistic regression, two tree ensembles were run under the identical LOYO protocol with the same 16 predictors plus calendar month and NUTS2 region: a **random forest** (`random_forest`) and **histogram gradient-boosted trees** (`hist_gbt`). Trees take region one-hot-encoded with month and features passed through unscaled; `logit_full` is unchanged. These were run for the three **x = any** labels.
+
+#### Main label: S383, any overlap
+
+| Model | Pooled LOYO ROC AUC (95% block-bootstrap interval) | Pooled LOYO AP (95% interval) |
+|---|---:|---:|
+| `logit_full` | 0.8969 (0.8688–0.9231) | 0.0243 (0.0128–0.0405) |
+| `random_forest` | 0.9096 (0.8869–0.9317) | 0.0287 (0.0162–0.0449) |
+| **`hist_gbt`** | 0.9072 (0.8866–0.9302) | **0.0299 (0.0176–0.0476)** |
+| `random_forest` − `logit_full` | +0.0127 (+0.0035–+0.0281) | +0.0044 (**−0.0007–+0.0094**) |
+| `hist_gbt` − `logit_full` | +0.0103 (**−0.0010–+0.0262**) | +0.0057 (**−0.0016–+0.0141**) |
+
+For S383 any, both models raise the ROC AUC point estimate over `logit_full`, the random forest by +0.0127, with **99%** of paired draws positive and a 95% interval excluding zero, but the **AP gains are small and their 95% paired intervals include zero**, so a clear average-precision improvement is **not** established at this most restrictive label.
+
+#### Average precision across fire-size thresholds (x = any)
+
+The picture changes sharply with label prevalence:
+
+| Label | Positive cell-months | `logit_full` AP | `random_forest` AP | `hist_gbt` AP |
+|---|---:|---:|---:|---:|
+| S30 any | 4,402 | 0.0832 | 0.1454 | **0.1527** |
+| S100 any | 2,538 | 0.0458 | 0.0656 | **0.0718** |
+| S383 any | 1,295 | 0.0243 | 0.0287 | **0.0299** |
+
+Paired `hist_gbt` − `logit_full` bootstrap differences over year-month blocks:
+
+| Label | ΔAUC (95% interval) | ΔAP (95% interval) | Draws ΔAUC > 0 | Draws ΔAP > 0 |
+|---|---|---|---:|---:|
+| S30 any | +0.0242 (+0.0178–+0.0327) | +0.0695 (+0.0433–+0.0955) | 100% | 100% |
+| S100 any | +0.0150 (+0.0046–+0.0281) | +0.0261 (+0.0128–+0.0429) | 100% | 100% |
+| S383 any | +0.0103 (**−0.0010–+0.0262**) | +0.0057 (**−0.0016–+0.0141**) | 96% | 92.67% |
+
+At the most common label (S30 any), gradient-boosted trees nearly double the average precision of `logit_full` (0.0832 → 0.1527). The advantage shrinks as the label becomes rarer and, at S383 any, is no longer distinguishable from zero on AP. `random_forest` was also far slower to fit than `hist_gbt` for an essentially equivalent result. See `outputs/other_models/`.
+
 ### Small-fire sensitivity and model coefficients
 
 Removing **3,107** cell-months with smaller fires but no qualifying S383 fire changes `logit_full` ROC AUC from **0.8969 to 0.8983** and AP from **0.0243 to 0.0252**. The corresponding `season+place` AP changes from **0.0124 to 0.0129**. This is a modest sensitivity in the reported metrics.

@@ -75,6 +75,7 @@ COLORS = {
 
 # ---------- data ----------
 
+# Read the cell-month data and check every column we need is there.
 def load():
     df = load_panel().reset_index(drop=True)
 
@@ -94,6 +95,7 @@ def load():
 
 # ---------- ML pipelines ----------
 
+# Build the logistic-regression model: one-hot the month/region and scale the 16 features.
 def logit_pipe():
     pre = ColumnTransformer([
         ("cat", OneHotEncoder(handle_unknown="ignore", drop="first"), ["month", "region"]),
@@ -103,6 +105,7 @@ def logit_pipe():
     return Pipeline([("pre", pre), ("lr", lr)])
 
 
+# Build a tree model: one-hot the region, pass month + features through as-is (trees need no scaling).
 def tree_pipe(estimator):
     pre = ColumnTransformer([
         (
@@ -123,6 +126,7 @@ def tree_pipe(estimator):
     ])
 
 
+# Pick which model to build from its name.
 def make_model(name):
     if name == "logit_full":
         return logit_pipe()
@@ -138,12 +142,14 @@ def make_model(name):
     raise ValueError(name)
 
 
+# Train one model on the training rows and return its fire probabilities for the test rows.
 def fit_predict(name, train, test, y):
     cols = ["month", "region"] + FEATURES
     m = make_model(name).fit(train[cols], train[y])
     return m.predict_proba(test[cols])[:, 1]
 
 
+# Leave-one-year-out: for each year, train on the other years and predict that year.
 def loyo(df, y, models):
     pred = pd.DataFrame(index=df.index, columns=models, dtype=float)
     for year in OPEN_YEARS:
@@ -153,6 +159,7 @@ def loyo(df, y, models):
     return pred
 
 
+# Turn true labels + predicted probabilities into the four score numbers.
 def scores(y, p):
     p = np.clip(p, EPS, 1 - EPS)
     return {"auc": roc_auc_score(y, p), "ap": average_precision_score(y, p),
@@ -161,6 +168,7 @@ def scores(y, p):
 
 # ---------- main ----------
 
+# Run everything: load the data, score each model, and save the table + figure.
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     df = load()
